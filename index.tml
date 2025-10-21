@@ -1,0 +1,210 @@
+<!-- static/index.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Student Achievement Predictor (Replit)</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; background: #f3fbff; margin:0; text-align:center; }
+    header { background:#004080; color:#fff; padding:18px 10px; }
+    .container { width:92%; max-width:1100px; margin:16px auto; }
+    .card { background:#fff; border-radius:10px; padding:16px; margin:12px 0; box-shadow:0 3px 10px rgba(0,0,0,0.08); text-align:left; }
+    input, select { width:86%; padding:10px; margin:8px 0; border-radius:6px; border:1px solid #ccc; }
+    button { padding:10px 18px; background:#004080; color:white; border:none; border-radius:6px; cursor:pointer; }
+    .row { display:flex; gap:12px; flex-wrap:wrap; }
+    .col { flex:1; min-width:260px; }
+    .progress-bar { width:86%; height:26px; background:#eee; border-radius:12px; margin:10px 0; overflow:hidden;}
+    .progress { height:100%; text-align:center; color:#fff; line-height:26px; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Student Achievement Predictor with Feedback Mechanism</h1>
+  <p style="margin:6px 0 0 0;">(Hosted on Replit)</p>
+</header>
+
+<div class="container">
+
+  <div class="card">
+    <h2>1) Predict & Save</h2>
+    <div class="row">
+      <div class="col">
+        <input id="name" placeholder="Student Name">
+        <input id="attendance" type="number" min="0" max="100" placeholder="Attendance %">
+        <input id="marks" type="number" min="0" max="100" placeholder="Marks (out of 100)">
+        <input id="assignment" type="number" min="0" max="10" placeholder="Assignment Score (0-10)">
+        <button onclick="handlePredict()">Predict & Save</button>
+        <p id="result"></p>
+        <p id="advice"></p>
+        <p id="skills"></p>
+        <p id="timetable"></p>
+        <div class="progress-bar"><div id="progress" class="progress"></div></div>
+      </div>
+      <div class="col">
+        <small>Saved Records</small>
+        <div id="savedList" style="max-height:260px; overflow:auto; border:1px solid #f0f0f0; padding:8px; border-radius:6px; margin-top:6px;"></div>
+        <div style="margin-top:8px;">
+          <button onclick="refreshSaved()">Refresh</button>
+          <button onclick="downloadCSV()">Download CSV</button>
+          <button onclick="downloadPDF()">Download PDF</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Compare</h2>
+    <div class="row">
+      <div class="col">
+        <input id="cmp_name1" placeholder="Name A">
+        <input id="cmp_att1" type="number" placeholder="Attendance %">
+        <input id="cmp_marks1" type="number" placeholder="Marks">
+        <input id="cmp_assign1" type="number" placeholder="Assignment (0-10)">
+      </div>
+      <div class="col">
+        <input id="cmp_name2" placeholder="Name B">
+        <input id="cmp_att2" type="number" placeholder="Attendance %">
+        <input id="cmp_marks2" type="number" placeholder="Marks">
+        <input id="cmp_assign2" type="number" placeholder="Assignment (0-10)">
+      </div>
+    </div>
+    <div style="margin-top:10px;">
+      <button onclick="compareImmediate()">Compare Now</button>
+      <button onclick="compareByHistory()">Compare By History</button>
+      <p id="cmpResult"></p>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Charts & Trend</h2>
+    <div style="display:flex; gap:12px; flex-wrap:wrap;">
+      <canvas id="scatter" style="flex:1;"></canvas>
+      <canvas id="bar" style="flex:1;"></canvas>
+      <canvas id="pie" style="flex:1;"></canvas>
+    </div>
+    <div style="margin-top:12px;">
+      <input id="trendName" placeholder="Enter student name for trend">
+      <button onclick="showTrend()">Show Trend</button>
+      <canvas id="line" style="width:100%; height:200px; margin-top:8px;"></canvas>
+    </div>
+  </div>
+
+</div>
+
+<script>
+/* Relative API paths (same origin) */
+const API = ""; // empty means same origin; fetch('/save') will hit the backend
+
+// charts
+const scatterChart = new Chart(document.getElementById('scatter'), { type:'scatter', data:{datasets:[]},
+  options:{scales:{x:{title:{display:true,text:'Attendance %'}}, y:{title:{display:true,text:'Marks'}}}}});
+const barChart = new Chart(document.getElementById('bar'), { type:'bar',
+  data:{labels:['High','Medium','Low'], datasets:[{data:[0,0,0], backgroundColor:['green','orange','red']}] },
+  options:{scales:{y:{beginAtZero:true}}}});
+const pieChart = new Chart(document.getElementById('pie'), { type:'pie',
+  data:{labels:['High','Medium','Low'], datasets:[{data:[0,0,0], backgroundColor:['green','orange','red']}] }});
+const lineChart = new Chart(document.getElementById('line'), { type:'line', data:{labels:[], datasets:[{label:'Marks', data:[], fill:false}] } });
+
+function calcScore(marks, attendance, assignment){ marks=Number(marks)||0; attendance=Number(attendance)||0; assignment=Number(assignment)||0; return (marks*0.6)+(attendance*0.3)+(assignment*1.0); }
+function categoryFromScore(score){ if(score>=70) return "High"; if(score>=50) return "Medium"; return "Low"; }
+function adviceFor(cat){ if(cat==='High') return "Excellent — aim for advanced practice."; if(cat==='Medium') return "Good — improve attendance & assignments."; return "Focus on basics and practice daily."; }
+function skillsFor(cat){ if(cat==='High') return "Advanced coding & projects"; if(cat==='Medium') return "Practice problems & mini projects"; return "Basic tutorials & faculty help"; }
+function timetableFor(cat){ if(cat==='High') return "1 hr revision +1 hr advanced practice daily"; if(cat==='Medium') return "1 hr revision +1 hr assignments"; return "1 hr revision +1 hr practice +doubt clearing"; }
+
+async function handlePredict(){
+  const name = document.getElementById('name').value || "Unknown";
+  const attendance = Number(document.getElementById('attendance').value)||0;
+  const marks = Number(document.getElementById('marks').value)||0;
+  const assignment = Number(document.getElementById('assignment').value)||0;
+  const score = calcScore(marks, attendance, assignment);
+  const category = categoryFromScore(score);
+
+  document.getElementById('result').innerText = `Prediction: ${category}`;
+  document.getElementById('advice').innerText = adviceFor(category);
+  document.getElementById('skills').innerText = skillsFor(category);
+  document.getElementById('timetable').innerText = timetableFor(category);
+
+  scatterChart.data.datasets.push({ label: category, data:[{x:attendance,y:marks}], backgroundColor:(category==='High'?'green':(category==='Medium'?'orange':'red'))});
+  scatterChart.update();
+  const map = {"High":0,"Medium":1,"Low":2};
+  barChart.data.datasets[0].data[map[category]] += 1; pieChart.data.datasets[0].data[map[category]] += 1;
+  barChart.update(); pieChart.update();
+
+  try{
+    await fetch('/save', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ name, attendance, marks, assignment, category, score }) });
+    refreshSaved();
+  }catch(e){ console.error('save failed', e); alert('Save failed — is server running?'); }
+}
+
+async function refreshSaved(){
+  try{
+    const res = await fetch('/students');
+    const arr = await res.json();
+    const container = document.getElementById('savedList'); container.innerHTML = "";
+    arr.slice(0,100).forEach(s=>{
+      const el = document.createElement('div');
+      el.style.padding='6px'; el.style.borderBottom='1px solid #f0f0f0';
+      el.innerHTML = `<b>${s.name}</b> — ${s.category} — Marks:${s.marks}, Att:${s.attendance}<br><small>${s.created_at}</small>`;
+      el.onclick = ()=> populateCompareWithSaved(s);
+      container.appendChild(el);
+    });
+  }catch(e){ console.error(e); document.getElementById('savedList').innerText='Cannot load saved records'; }
+}
+
+function populateCompareWithSaved(s){
+  if(!document.getElementById('cmp_name1').value){
+    document.getElementById('cmp_name1').value=s.name; document.getElementById('cmp_att1').value=s.attendance;
+    document.getElementById('cmp_marks1').value=s.marks; document.getElementById('cmp_assign1').value=s.assignment;
+  } else {
+    document.getElementById('cmp_name2').value=s.name; document.getElementById('cmp_att2').value=s.attendance;
+    document.getElementById('cmp_marks2').value=s.marks; document.getElementById('cmp_assign2').value=s.assignment;
+  }
+}
+
+function computeCategoryFromInputs(att, marks, assign){ const s=calcScore(marks, att, assign); return {score:s, category: categoryFromScore(s)}; }
+function compareImmediate(){
+  const a1=Number(document.getElementById('cmp_att1').value)||0, m1=Number(document.getElementById('cmp_marks1').value)||0, as1=Number(document.getElementById('cmp_assign1').value)||0, n1=document.getElementById('cmp_name1').value||'A';
+  const a2=Number(document.getElementById('cmp_att2').value)||0, m2=Number(document.getElementById('cmp_marks2').value)||0, as2=Number(document.getElementById('cmp_assign2').value)||0, n2=document.getElementById('cmp_name2').value||'B';
+  const r1=computeCategoryFromInputs(a1,m1,as1), r2=computeCategoryFromInputs(a2,m2,as2);
+  let text=`${n1}: ${r1.category} (score ${Math.round(r1.score)}) vs ${n2}: ${r2.category} (score ${Math.round(r2.score)})`;
+  if(r1.score>r2.score) text += ` → ${n1} is better`; else if(r2.score>r1.score) text += ` → ${n2} is better`; else text += " → Both equal";
+  document.getElementById('cmpResult').innerText = text;
+}
+
+async function compareByHistory(){
+  const n1=document.getElementById('cmp_name1').value, n2=document.getElementById('cmp_name2').value;
+  if(!n1||!n2){ alert('Enter both names'); return; }
+  try{
+    const res1 = await fetch(`/history/${encodeURIComponent(n1)}`), res2 = await fetch(`/history/${encodeURIComponent(n2)}`);
+    const h1 = await res1.json(), h2 = await res2.json();
+    const last1 = h1.length? h1[h1.length-1].score : null, last2 = h2.length? h2[h2.length-1].score : null;
+    let text = `${n1} last score: ${last1||'N/A'}  |  ${n2} last score: ${last2||'N/A'}`;
+    if(last1 && last2){ if(last1>last2) text += ` → ${n1} is better`; else if(last2>last1) text += ` → ${n2} is better`; else text += " → Both equal"; }
+    document.getElementById('cmpResult').innerText = text;
+  }catch(e){ console.error(e); alert('Error fetching history'); }
+}
+
+async function showTrend(){
+  const name = document.getElementById('trendName').value; if(!name){ alert('Enter name'); return; }
+  try{
+    const res = await fetch(`/history/${encodeURIComponent(name)}`); const rows = await res.json();
+    if(!rows.length){ alert('No history'); return; }
+    const labels = rows.map(r => (new Date(r.created_at)).toLocaleString());
+    const data = rows.map(r => r.marks);
+    lineChart.data.labels = labels; lineChart.data.datasets[0].data = data; lineChart.update();
+  }catch(e){ console.error(e); alert('Cannot load history'); }
+}
+
+function downloadCSV(){ window.location = '/export_csv'; }
+async function downloadPDF(){ const { jsPDF } = window.jspdf; const doc = new jsPDF(); const name = document.getElementById('name').value||'Unknown'; const attendance=document.getElementById('attendance').value||0; const marks=document.getElementById('marks').value||0; const assignment=document.getElementById('assignment').value||0; const score=calcScore(marks,attendance,assignment).toFixed(2); const category=categoryFromScore(score); doc.setFontSize(14); doc.text("Student Achievement Report",14,20); doc.setFontSize(12); doc.text(`Name: ${name}`,14,36); doc.text(`Attendance: ${attendance}%`,14,44); doc.text(`Marks: ${marks}`,14,52); doc.text(`Assignment: ${assignment}`,14,60); doc.text(`Score: ${score}`,14,68); doc.text(`Category: ${category}`,14,76); doc.text(`Advice: ${adviceFor(category)}`,14,86); doc.save(`${name}_report.pdf`); }
+
+refreshSaved();
+</script>
+
+</body>
+</html>
